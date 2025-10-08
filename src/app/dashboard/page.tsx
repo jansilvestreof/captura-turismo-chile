@@ -7,6 +7,7 @@ export default function Dashboard() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [usingMockData, setUsingMockData] = useState(false);
 
   useEffect(() => {
     if (!isSupabaseConfigured()) {
@@ -17,11 +18,63 @@ export default function Dashboard() {
     fetchLatestData();
   }, []);
 
+  const getMockData = () => ({
+    trends: {
+      "chile turismo": {
+        interest_over_time: [75, 82, 68, 91, 77],
+        regional_interest: [
+          { region: "Santiago", value: 85 },
+          { region: "Valparaíso", value: 70 },
+          { region: "Atacama", value: 60 },
+          { region: "Los Lagos", value: 55 }
+        ]
+      },
+      "patagonia chile": {
+        interest_over_time: [65, 71, 58, 79, 83],
+        regional_interest: [
+          { region: "Magallanes", value: 95 },
+          { region: "Aysén", value: 88 },
+          { region: "Los Lagos", value: 45 }
+        ]
+      },
+      "atacama desert": {
+        interest_over_time: [45, 52, 48, 67, 71],
+        regional_interest: [
+          { region: "Atacama", value: 92 },
+          { region: "Antofagasta", value: 78 },
+          { region: "Coquimbo", value: 35 }
+        ]
+      }
+    },
+    social: {
+      instagram: { posts: 1250, engagement: 4.2 },
+      tiktok: { videos: 890, views: 125000 },
+      facebook: { posts: 650, shares: 320 }
+    },
+    personas: [
+      { name: "Aventureiro", interests: ["trekking", "montanhismo", "patagonia"] },
+      { name: "Família", interests: ["praias", "cultura", "gastronomia"] },
+      { name: "Fotógrafo", interests: ["paisagens", "natureza", "aurora austral"] },
+      { name: "Mochileiro", interests: ["hostels", "transporte público", "trilhas"] }
+    ],
+    recommendations: {
+      keywords: ["patagonia", "atacama", "valparaiso", "santiago", "torres del paine"],
+      regions: ["Santiago", "Valparaíso", "Atacama", "Magallanes"],
+      times: ["09:00-11:00", "19:00-21:00", "14:00-16:00"],
+      best_months: ["dezembro", "janeiro", "fevereiro", "março"]
+    }
+  });
+
   const fetchLatestData = async () => {
-    if (!supabase) return;
+    if (!supabase) {
+      setData(getMockData());
+      setUsingMockData(true);
+      setLoading(false);
+      return;
+    }
 
     try {
-      const { data, error } = await supabase
+      const { data: fetchedData, error } = await supabase
         .from('tourism_data')
         .select('*')
         .order('timestamp', { ascending: false })
@@ -29,15 +82,33 @@ export default function Dashboard() {
 
       if (error) {
         console.error('Error fetching data:', error);
-        setError('Erro ao buscar dados: ' + error.message);
-      } else if (data && data.length > 0) {
-        setData(data[0]);
+        
+        // Se a tabela não existir, usar dados mock
+        if (error.code === 'PGRST205' || error.message.includes('table') || error.message.includes('schema cache')) {
+          console.log('Tabela não encontrada, usando dados de demonstração');
+          setData(getMockData());
+          setUsingMockData(true);
+          setError(null);
+        } else {
+          setError('Erro ao buscar dados: ' + error.message);
+        }
+      } else if (fetchedData && fetchedData.length > 0) {
+        setData(fetchedData[0]);
+        setUsingMockData(false);
+        setError(null);
       } else {
-        setError('Nenhum dado encontrado na base de dados.');
+        // Se não há dados na tabela, usar dados mock
+        console.log('Nenhum dado encontrado, usando dados de demonstração');
+        setData(getMockData());
+        setUsingMockData(true);
+        setError(null);
       }
     } catch (err) {
       console.error('Unexpected error:', err);
-      setError('Erro inesperado ao conectar com o banco de dados.');
+      // Em caso de erro inesperado, usar dados mock
+      setData(getMockData());
+      setUsingMockData(true);
+      setError(null);
     }
     setLoading(false);
   };
@@ -53,7 +124,7 @@ export default function Dashboard() {
     );
   }
 
-  // Mostrar erro se houver problema de configuração ou dados
+  // Mostrar erro se houver problema de configuração
   if (error) {
     return (
       <div className="container mx-auto p-4">
@@ -80,40 +151,14 @@ export default function Dashboard() {
     );
   }
 
-  // Mostrar dados de exemplo se não houver dados reais
   if (!data) {
-    const mockData = {
-      trends: {
-        "chile turismo": {
-          interest_over_time: [75],
-          regional_interest: [
-            { region: "Santiago", value: 85 },
-            { region: "Valparaíso", value: 70 },
-            { region: "Atacama", value: 60 }
-          ]
-        },
-        "patagonia chile": {
-          interest_over_time: [65],
-          regional_interest: []
-        }
-      },
-      social: {
-        instagram: { posts: 1250 },
-        tiktok: { videos: 890 },
-        facebook: { posts: 650 }
-      },
-      personas: [
-        { name: "Aventureiro", interests: ["trekking", "montanhismo"] },
-        { name: "Família", interests: ["praias", "cultura"] },
-        { name: "Fotógrafo", interests: ["paisagens", "natureza"] }
-      ],
-      recommendations: {
-        keywords: ["patagonia", "atacama", "valparaiso"],
-        regions: ["Santiago", "Valparaíso", "Atacama"],
-        times: ["09:00-11:00", "19:00-21:00"]
-      }
-    };
-    setData(mockData);
+    return (
+      <div className="container mx-auto p-4">
+        <div className="text-center">
+          <p>Nenhum dado disponível</p>
+        </div>
+      </div>
+    );
   }
 
   const trendsData = data.trends;
@@ -121,7 +166,7 @@ export default function Dashboard() {
 
   // Prepare chart data
   const chartData = Object.keys(trendsData).map(keyword => ({
-    keyword,
+    keyword: keyword.replace(' ', '\n'),
     interest: trendsData[keyword].interest_over_time.slice(-1)[0]
   }));
 
@@ -137,7 +182,14 @@ export default function Dashboard() {
 
   return (
     <div className="container mx-auto p-4">
-      <h1 className="text-3xl font-bold mb-8">Chile Tourism Tracker Dashboard</h1>
+      <div className="flex items-center justify-between mb-8">
+        <h1 className="text-3xl font-bold">Chile Tourism Tracker Dashboard</h1>
+        {usingMockData && (
+          <div className="bg-yellow-100 border border-yellow-400 text-yellow-700 px-4 py-2 rounded">
+            📊 Dados de demonstração
+          </div>
+        )}
+      </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         <div className="bg-white p-6 rounded-lg shadow">
@@ -152,7 +204,7 @@ export default function Dashboard() {
         </div>
 
         <div className="bg-white p-6 rounded-lg shadow">
-          <h2 className="text-xl font-semibold mb-4">Regional Interest</h2>
+          <h2 className="text-xl font-semibent mb-4">Regional Interest</h2>
           <BarChart width={300} height={200} data={regionalData}>
             <CartesianGrid strokeDasharray="3 3" />
             <XAxis dataKey="region" />
@@ -186,11 +238,13 @@ export default function Dashboard() {
 
       <div className="mt-8">
         <h2 className="text-2xl font-semibold mb-4">Personas Identificadas</h2>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           {data.personas.map((persona, index) => (
             <div key={index} className="bg-white p-4 rounded-lg shadow">
-              <h3 className="font-semibold">{persona.name}</h3>
-              <p>Interesses: {persona.interests.join(', ')}</p>
+              <h3 className="font-semibold text-lg mb-2">{persona.name}</h3>
+              <p className="text-sm text-gray-600">
+                <strong>Interesses:</strong> {persona.interests.join(', ')}
+              </p>
             </div>
           ))}
         </div>
@@ -198,10 +252,27 @@ export default function Dashboard() {
 
       <div className="mt-8">
         <h2 className="text-2xl font-semibold mb-4">Recomendações para Campanhas</h2>
-        <div className="bg-white p-4 rounded-lg shadow">
-          <p><strong>Keywords quentes:</strong> {data.recommendations.keywords.join(', ')}</p>
-          <p><strong>Regiões prioritárias:</strong> {data.recommendations.regions.join(', ')}</p>
-          <p><strong>Melhores horários:</strong> {data.recommendations.times.join(', ')}</p>
+        <div className="bg-white p-6 rounded-lg shadow">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <p className="mb-2">
+                <strong>Keywords quentes:</strong> {data.recommendations.keywords.join(', ')}
+              </p>
+              <p className="mb-2">
+                <strong>Regiões prioritárias:</strong> {data.recommendations.regions.join(', ')}
+              </p>
+            </div>
+            <div>
+              <p className="mb-2">
+                <strong>Melhores horários:</strong> {data.recommendations.times.join(', ')}
+              </p>
+              {data.recommendations.best_months && (
+                <p className="mb-2">
+                  <strong>Melhores meses:</strong> {data.recommendations.best_months.join(', ')}
+                </p>
+              )}
+            </div>
+          </div>
         </div>
       </div>
     </div>
